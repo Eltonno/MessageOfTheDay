@@ -10,7 +10,7 @@
 -author("Elton").
 
 %% API
--export([keyfind/2,keystore/3,last/1,first/1,append/2,member/2,bubblesort/1,reverse/1,length/1]).
+-export([keyfind/2,keystore/3,last/1,first/1,append/2,member/2,bubblesort/1,reverse/1,length/1,delete/2]).
 
 keyfind(_,[]) ->
   false;
@@ -98,7 +98,7 @@ bubblesort([], L, true) ->
   reverse(L);
 bubblesort([], L, false) ->
   bubblesort(reverse(L), [], true);
-bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP],[NNr,Msg,TSclientout,TShbqin]|T], Sorted, _) when A > B ->
+bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP],[NNr,Msg,TSclientout,TShbqin]|T], Sorted, _) when NNrP > NNr ->
   bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP]|T], [[NNr,Msg,TSclientout,TShbqin]|Sorted], false);
 bubblesort([H|T], Sorted, Halt) ->
   bubblesort(T, [H|Sorted], Halt).
@@ -112,3 +112,21 @@ length([],A) ->
   A;
 length([_|T],A) ->
   length(T,A+1).
+
+delete(_,[]) ->
+  [];
+delete(Key,[Head|Rest]) ->
+  {K,_}= Head,
+  if K == Key -> Rest;
+    true -> delete(Key,Rest,[Head])
+  end
+.
+
+delete(_,[],Front) ->
+  Front;
+delete(Key,[Head|Rest],Front) ->
+  {K,_} = Head,
+  if K == Key -> append(Front,Rest);
+    true -> delete(Key,Rest,append(Front,Head))
+  end
+.

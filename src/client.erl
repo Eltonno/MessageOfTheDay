@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @author Elton
+%%% @author Florian Weiß, Ditmar Lange
 %%% @copyright (C) 2018, <COMPANY>
 %%% @doc
 %%%
@@ -19,8 +19,8 @@
 -define(RECHNER_NAME, erlang:node()).
 
 init() ->
-  init("client.cfg")
-.
+  init("client.cfg").
+
 init(File) ->
   {ok, Hostname} = inet:gethostname(),
   {ok, Configfile} = file:consult(File),
@@ -36,36 +36,33 @@ init(File) ->
     {node, Servernode},
     {host, Hostname},
     {intervall, Sendinterval}],
-  spawner(Clients, Config)
-.
+  spawner(Clients, Config).
 
 spawner(0, _) ->
   ok;
 spawner(Clients, Config) ->
-  {_, CurrentClients} = list:keyfind(clients, Config),
+  {_, CurrentClients} = keyfind(clients, Config),
   Clientname = list_to_atom("Client_" ++ util:to_String(CurrentClients-Clients+1)),
   register(Clientname, spawn(?MODULE, pre_loop, [Clientname, Config, erlang:timestamp()])),
-  spawner(Clients-1, Config)
-.
+  spawner(Clients-1, Config).
 
 pre_loop(Clientname, Config, Starttime) ->
-  Config_Tmp_1 = list:keystore(clientname,Config,{clientname, atom_to_list(Clientname)}),
-  Config_Tmp_2 = list:keystore(starttime,Config_Tmp_1,{starttime, Starttime}),
-  Config_Tmp_3 = list:keystore(logfile,Config_Tmp_2,{logfile, atom_to_list(Clientname) ++ atom_to_list(?RECHNER_NAME) ++".log"}),
-  {_,Logfile} = list:keyfind(logfile, Config_Tmp_3),
+  Config_Tmp_1 = keystore(clientname,Config,{clientname, atom_to_list(Clientname)}),
+  Config_Tmp_2 = keystore(starttime,Config_Tmp_1,{starttime, Starttime}),
+  Config_Tmp_3 = keystore(logfile,Config_Tmp_2,{logfile, atom_to_list(Clientname) ++ atom_to_list(?RECHNER_NAME) ++".log"}),
+  {_,Logfile} = keyfind(logfile, Config_Tmp_3),
   util:logging(Logfile, atom_to_list(Clientname) ++ atom_to_list(?RECHNER_NAME) ++ "-" ++ util:to_String(self()) ++ "-LAW Start: " ++ vsutil:now2string(Starttime) ++"\n"),
-  main_loop(Config_Tmp_3, 0, publisher, [])
-.
+  main_loop(Config_Tmp_3, 0, publisher, []).
 
 main_loop(Config, SessionTransactions, Role, OwnMsgs) ->
-  {_,Starttime} = list:keyfind(starttime, Config),
-  {_,Lifetime} = list:keyfind(lifetime, Config),
-  {_,Logfile} = list:keyfind(logfile, Config),
-  {_,Clientname} = list:keyfind(clientname, Config),
-  {_,Servername} = list:keyfind(servername, Config),
-  {_,Servernode} = list:keyfind(node, Config),
-  {_,Intervall} = list:keyfind(intervall, Config),
-  Diff = help:toMillis(erlang:timestamp()) - help:toMillis(Starttime),
+  {_,Starttime} = keyfind(starttime, Config),
+  {_,Lifetime} = keyfind(lifetime, Config),
+  {_,Logfile} = keyfind(logfile, Config),
+  {_,Clientname} = keyfind(clientname, Config),
+  {_,Servername} = keyfind(servername, Config),
+  {_,Servernode} = keyfind(node, Config),
+  {_,Intervall} = keyfind(intervall, Config),
+  Diff = toMillis(erlang:timestamp()) - toMillis(Starttime),
   if
     Diff < Lifetime * 1000 ->
       case Role of
@@ -73,8 +70,8 @@ main_loop(Config, SessionTransactions, Role, OwnMsgs) ->
           MsgID = getMsgID(Servername, Servernode),
           case SessionTransactions of
             5 ->
-              NewInt = help:changeSendInterval(Intervall),
-              Config_Tmp_1 = list:keystore(intervall, Config, {intervall, NewInt}),
+              NewInt = changeSendInterval(Intervall),
+              Config_Tmp_1 = keystore(intervall, Config, {intervall, NewInt}),
               util:logging(Logfile, "Neues Sendeintervall: " ++ util:to_String(NewInt) ++ "(" ++ util:to_String(Intervall) ++ ")\n"),
               util:logging(Logfile, util:to_String(MsgID) ++ "te_Nachricht um " ++ util:timeMilliSecond() ++ " vergessen zu senden ******\n"),
               main_loop(Config_Tmp_1, 0, reader, OwnMsgs);
@@ -83,7 +80,7 @@ main_loop(Config, SessionTransactions, Role, OwnMsgs) ->
               {Servername, Servernode} ! {dropmessage, [MsgID, Msg, erlang:timestamp()]},
               util:logging(Logfile, Clientname ++ "-" ++ atom_to_list(?RECHNER_NAME) ++ "-" ++ util:to_String(self()) ++ "-LAW: " ++  util:to_String(MsgID) ++ "te_Nachricht um " ++ util:timeMilliSecond() ++ " gesendet\n"),
               timer:sleep(trunc(Intervall * 1000)),
-              main_loop(Config, SessionTransactions + 1, Role, list:append(OwnMsgs, MsgID))
+              main_loop(Config, SessionTransactions + 1, Role, append(OwnMsgs, MsgID))
           end;
         reader ->
           {Servername, Servernode} ! {self(), getmessages},
@@ -99,8 +96,7 @@ main_loop(Config, SessionTransactions, Role, OwnMsgs) ->
     true ->
       util:logging(Logfile, "Downtime: " ++ util:timeMilliSecond() ++ " vom Client " ++ Clientname ++ atom_to_list(?RECHNER_NAME) ++ "-" ++ util:to_String(self()) ++ "-LAW\n"),
       exit("Lifettime is over")
-  end
-.
+  end.
 
 getMsgID(Servername, Servernode) ->
   {Servername, Servernode} ! {self(), getmsgid},
@@ -122,7 +118,7 @@ readerLogging([MsgID, Msg, TScout, TSdlqout], Logfile, OwnMsgs) ->
           util:logging(Logfile, Msg++ " ; C In: " ++ vsutil:now2string(TScin) ++"\n")
       end;
     true ->
-      Member = list:member(MsgID, OwnMsgs),
+      Member = member(MsgID, OwnMsgs),
       if
         Less ->
           if
@@ -139,6 +135,68 @@ readerLogging([MsgID, Msg, TScout, TSdlqout], Logfile, OwnMsgs) ->
               util:logging(Logfile, Msg++ " ; C In: " ++ vsutil:now2string(TScin) ++"\n")
           end
       end
+  end.
 
-  end
-.
+toMillis({MeSec, Sec, MiSec}) ->
+  (MeSec * 1000000 + Sec) * 1000 + round(MiSec / 1000).
+
+changeSendInterval(Sendinterval) ->
+  Prob = rand:uniform(),
+  if
+    (Sendinterval * (Prob + 0.5)) > 2 ->
+      (Sendinterval * (Prob + 0.5));
+    true ->
+      2
+  end.
+
+keyfind(_,[]) ->
+  false;
+keyfind(Key, Tuplelist) ->
+  [Head|Rest] = Tuplelist,
+  {K,_} = Head,
+  if K == Key -> Head;
+    true -> keyfind(Key,Rest)
+  end.
+
+keystore(_,[],Tupel) ->
+  [Tupel];
+keystore(Key,[Head|Rest],Tupel) ->
+  {K,_}= Head,
+  if K == Key -> append(Tupel, Rest);
+    true -> keystore(Key,Rest,[Head],Tupel)
+  end.
+
+keystore(_,[],Front,Tupel) ->
+  append(Front, Tupel);
+keystore(Key,[Head|Rest],Front,Tupel) ->
+  {K,_} = Head,
+  if K == Key -> append(append(Front,Tupel),Rest);
+    true -> keystore(Key,Rest,append(Front,Head),Tupel)
+  end.
+
+append([], []) ->
+  [];
+append([],[H|T]) ->
+  [H|T];
+append([],Elem) ->
+  [Elem];
+append([H|T], []) ->
+  [H|T];
+append(Elem, []) ->
+  [Elem];
+append([H1|T1],[H2|T2]) ->
+  append([H1|T1] ++ [H2], T2);
+append([H|T],Elem) ->
+  [H|T] ++ [Elem];
+append(L,[H|T]) ->
+  append([L] ++ [H], T);
+append(E1,E2) ->
+  [E1] ++ [E2].
+
+member(_,[]) ->
+  false;
+member(Elem, [H|T]) ->
+  if
+    H == Elem -> true;
+    true -> member(Elem, T)
+  end.
