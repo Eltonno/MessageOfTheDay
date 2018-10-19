@@ -32,11 +32,10 @@ init(File) ->
   timer:sleep(700),
   HBQPID = spawn(HBQnode, hbq, startHBQ, []),
   timer:sleep(700),
-  util:logging(Logfile, util:to_String(HBQPID) ++ "\n"),
   {HBQname,HBQnode} ! {self(),{request, initHBQ}},    %HBQPID ! {self(),{request, initHBQ}}
   receive
     {reply, ok} ->
-      util:logging(Logfile, "Server: HBQ wurde initialisiert\n")
+      util:logging(Logfile, "Server: HBQ konnte initialisiert werden\n")
   end,
   Config = [
     {latency, Latency},
@@ -48,59 +47,78 @@ init(File) ->
     {cmem, CMEM},
     {hbqpid, HBQPID}],
   PID = spawn(?MODULE,loop,[Config,1]),
+  util:logging(Logfile, "Server: Startzeit: " ++ vsutil:now2string(erlang:timestamp()) ++ " mit PID " ++ util:to_String(PID) ++ "\n"),
   register(Servername, PID),
   util:logging(Logfile, "Server: wurde registriert\n")
 .
 
-loop(Config, MsqID) ->
+loop(Config, MsgID) ->
   {_,Logfile} = keyfind(logfile, Config),
   {_,Latency} = keyfind(latency, Config),
   {_,CMEM} = keyfind(cmem, Config),
-  {_,HBQPID} = keyfind(hbqpid, Config),
-  {_,HBQname} = keyfind(hbqpid, Config),
-  {_,HBQnode} = keyfind(hbqpid, Config),
-  util:logging(Logfile, "Server: in loop\n"),
+  {_,HBQname} = keyfind(hbqname, Config),
+  {_,HBQnode} = keyfind(hbqnode, Config),
   receive
     {CPID, getmessages} ->
       CNNR = cmem:getClientNNr(CMEM, CPID),
       {HBQname,HBQnode} ! {self(), {request, deliverMSG, CNNR, CPID}},
       receive
         {reply, SendNNr} ->
+          util:logging(Logfile, "Server: Nachricht " ++ util:to_String(CNNR) ++ "wurde zugestellt.\n"),
           Config_Tmp_1 = keystore(cmem, Config, {cmem, cmem:updateClient(CMEM, CPID, SendNNr, Logfile)}),
-          loop(Config_Tmp_1, MsqID)
+          loop(Config_Tmp_1, MsgID)
+      after
+        500 ->
+          util:logging(Logfile, "Server: Nachricht " ++ util:to_String(CNNR) ++ "konnte nicht zugestellt werden.\n"),
+          loop(Config, MsgID)
       end;
     {dropmessage,[INNR,Msg,TSclientout]} ->
-      util:logging(Logfile, util:to_String(INNR) ++ " wird an die HBQ gesendet\n"),
-      {HBQname,HBQnode} ! {self(), {request,pushHBQ,[INNR, Msg, TSclientout]}},      %HBQPID ! {self(), {request, pushHBQ, [INNR, Msg, TSclientout]}}
+      {HBQname,HBQnode} ! {self(), {request,pushHBQ,[INNR,Msg,TSclientout]}},     %HBQPID ! {self(), {request, pushHBQ, [INNR, Msg, TSclientout]}}
       receive
         {reply, ok} ->
-          util:logging(Logfile, "Server: Konnte in HBQ eingetragen werden\n"),
-          loop(Config, MsqID)
+          util:logging(Logfile, "Server: Nachricht " ++ util:to_String(INNR) ++ " wurde in HBQ eingefügt.\n"),
+          loop(Config, MsgID)
       after
-        Latency * 1000 ->
-          {HBQname,HBQnode} ! {self(),{request, dellHBQ}},
-          util:logging(Logfile, "Server: Downtime\n")
+        500 ->
+          util:logging(Logfile, "Server: Nachricht " ++ util:to_String(INNR) ++ "konnte nicht in HBQ eingefügt werden.\n"),
+          loop(Config, MsgID)
       end;
     {CPID,getmsgid} ->
-      util:logging(Logfile, "Server: Nachrichtennummer " ++ util:to_String(MsqID) ++ " wird ausgegeben\n"),
-      CPID ! {nid, MsqID},
-      loop(Config, MsqID + 1);
+      util:logging(Logfile, "Server: Nachrichtennummer " ++ util:to_String(MsgID) ++ " an " ++ util:to_String(CPID) ++ " gesendet\n"),
+      CPID ! {nid, MsgID},
+      loop(Config, MsgID + 1);
     {_,listDLQ} ->
-      {HBQname,HBQnode} ! listdlq,
-      loop(Config, MsqID);
+      {HBQname,HBQnode} ! {self(),{request, listDLQ}},
+      receive
+        {reply, ok} ->
+          util:logging(Logfile, "Server: DLQ gelistet\n")
+      after
+        500 ->
+          util:logging(Logfile, "Server: DLQ konnte nicht gelistet werden\n")
+      end,
+      loop(Config, MsgID);
     {_,listHBQ} ->
-      {HBQname,HBQnode} ! listhbq,
-      loop(Config, MsqID);
+      {HBQname,HBQnode} ! {self(),{request, listHBQ}},
+      receive
+        {reply, ok} ->
+          util:logging(Logfile, "Server: HBQ gelistet\n")
+      after
+        500 ->
+          util:logging(Logfile, "Server: HBQ konnte nicht gelistet werden\n")
+      end,
+      loop(Config, MsgID);
     {_,listCMEM} ->
       cmem:listCMEM(CMEM),
-      loop(Config, MsqID)
+      loop(Config, MsgID)
   after
     Latency * 1000 ->
       {HBQname,HBQnode} ! {self(),{request, dellHBQ}},
-      util:logging(Logfile, "Server: Downtime\n")
+      util:logging(Logfile, "Server: Downtime " ++ vsutil:now2string(erlang:timestamp()) ++ " vom Nachrichtenserver " ++ util:to_String(self()) ++ "\n")
+      %exit("Timeout")
   end
 .
-%%
+
+%% Hilfsfunktionen für Listen
 keyfind(_,[]) ->
   false;
 keyfind(Key, Tuplelist) ->
@@ -127,4 +145,24 @@ keystore(Key,[Head|Rest],Front,Tupel) ->
   if K == Key -> append(append(Front,Tupel),Rest);
     true -> keystore(Key,Rest,append(Front,Head),Tupel)
   end
+.
+
+append([], []) ->
+  [];
+append([],[H|T]) ->
+  [H|T];
+append([],Elem) ->
+  [Elem];
+append([H|T], []) ->
+  [H|T];
+append(Elem, []) ->
+  [Elem];
+append([H1|T1],[H2|T2]) ->
+  append([H1|T1] ++ [H2], T2);
+append([H|T],Elem) ->
+  [H|T] ++ [Elem];
+append(L,[H|T]) ->
+  append([L] ++ [H], T);
+append(E1,E2) ->
+  [E1] ++ [E2]
 .

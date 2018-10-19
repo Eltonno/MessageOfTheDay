@@ -86,6 +86,7 @@ loop(Limit,HBQ,DLQ) ->
     {SPID, {request,dellHBQ}} ->
       dlq:delDLQ(DLQ),
       SPID ! {reply, ok}
+      %util:logging(?LOGFILE, "HBQ>>> Downtime: " ++ vsutil:now2string(erlang:timestamp()) ++ " von HBQ und DLQ " ++ <0.1245.0> ++ "; Anzahl Restnachrichten HBQ:" ++ 11 ++ "; DLQ letzte NNr:" ++ 264 ++ "\n")
   end
 .
 

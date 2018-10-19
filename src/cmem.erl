@@ -13,7 +13,7 @@
 -export([initCMEM/2,delCMEM/1,updateClient/4,getClientNNr/2,listCMEM/1,lengthCMEM/1]).
 
 initCMEM(RemTime,Datei) ->
-  util:logging(Datei, "CMEM initialisiert\nRemTime is: " ++ util:to_String(RemTime) ++ "\n"),
+  util:logging(Datei, "CMEM>>> initialisiert mit Lebenszeit " ++ util:to_String(RemTime) ++ " Sekunden\n"),
   {[], RemTime}.
 
 delCMEM(_CMEM) ->
@@ -21,9 +21,17 @@ delCMEM(_CMEM) ->
 
 updateClient(CMEM,ClientID,NNr,Datei) ->
   {CMEMlist, RemTime} = CMEM,
-  CMEMlist_Tmp_1 = keystore(ClientID, CMEMlist, {ClientID, NNr, erlang:timestamp()}),
-  util:logging(Datei, "CMEM>> Client " ++ util:to_String(ClientID) ++ " upgedated\n"),
-  deleteClients({CMEMlist_Tmp_1,RemTime}).
+  Member = member(ClientID,CMEMlist),
+  case Member of
+    true ->
+      util:logging(Datei, "CMEM>>> Client " ++ util:to_String(ClientID) ++ " in CMEM eingefügt " ++ util:to_String(vsutil:now2UTC(erlang:timestamp())) ++ "\n"),
+      CMEMlist_Tmp_1 = keystore3Tupel(ClientID, CMEMlist, {ClientID, NNr, erlang:timestamp()}),
+      deleteClients({CMEMlist_Tmp_1,RemTime},Datei);
+    false ->
+      util:logging(Datei, "CMEM>>> Client " ++ util:to_String(ClientID) ++ " wird aktualisiert\n"),
+      CMEMlist_Tmp_1 = keystore3Tupel(ClientID, CMEMlist, {ClientID, NNr, erlang:timestamp()}),
+      deleteClients({CMEMlist_Tmp_1,RemTime},Datei)
+  end.
 
 getClientNNr(CMEM,ClientID) ->
   {CMEMlist, RemTime} = CMEM,
@@ -36,9 +44,10 @@ getClientNNr(CMEM,ClientID) ->
       {_,Sec,_} = vsutil:diffTS(erlang:timestamp(),CTs),
       Delete = Sec >= RemTime,
       case Delete of
+        false ->
+          CNNr + 1;
         true ->
-          1;
-        false -> CNNr + 1
+          1
       end
   end
 .
@@ -61,20 +70,21 @@ getClients([],A) ->
 getClients([{ID,NNr,_}|T],A) ->
   getClients(T,append(A,{ID,NNr})).
 
-deleteClients({CMEMlist, RemTime}) ->
-  deleteClients(CMEMlist,[],RemTime).
+deleteClients({CMEMlist, RemTime},Datei) ->
+  deleteClients(CMEMlist,[],RemTime,Datei).
 
-deleteClients([],A, RemTime) ->
+deleteClients([],A, RemTime,_Datei) ->
   {A,RemTime};
-deleteClients(CMEMlist, A, RemTime) ->
+deleteClients(CMEMlist, A, RemTime,Datei) ->
   [{CID,CNNr,CTs}|T] = CMEMlist,
   {_,Sec,_} = vsutil:diffTS(erlang:timestamp(),CTs),
   Delete = Sec >= RemTime,
   case Delete of
     true ->
-      deleteClients(T,A,RemTime);
+      util:logging(Datei, "CMEM>>> Client " ++ util:to_String(CID) ++ " in CMEM gelöscht\n"),
+      deleteClients(T,A,RemTime,Datei);
     false ->
-      deleteClients(T,append(A,{CID,CNNr,CTs}),RemTime)
+      deleteClients(T,append(A,{CID,CNNr,CTs}),RemTime,Datei)
   end.
 
 keyfind3Tupel(_,[]) ->
@@ -84,26 +94,23 @@ keyfind3Tupel(Key, Tuplelist) ->
   {K,_,_} = Head,
   if K == Key -> Head;
     true -> keyfind3Tupel(Key,Rest)
-  end
-.
+  end.
 
-keystore(_,[],Tupel) ->
+keystore3Tupel(_,[],Tupel) ->
   [Tupel];
-keystore(Key,[Head|Rest],Tupel) ->
-  {K,_}= Head,
+keystore3Tupel(Key,[Head|Rest],Tupel) ->
+  {K,_,_}= Head,
   if K == Key -> append(Tupel, Rest);
-    true -> keystore(Key,Rest,[Head],Tupel)
-  end
-.
+    true -> keystore3Tupel(Key,Rest,[Head],Tupel)
+  end.
 
-keystore(_,[],Front,Tupel) ->
+keystore3Tupel(_,[],Front,Tupel) ->
   append(Front, Tupel);
-keystore(Key,[Head|Rest],Front,Tupel) ->
-  {K,_} = Head,
+keystore3Tupel(Key,[Head|Rest],Front,Tupel) ->
+  {K,_,_} = Head,
   if K == Key -> append(append(Front,Tupel),Rest);
-    true -> keystore(Key,Rest,append(Front,Head),Tupel)
-  end
-.
+    true -> keystore3Tupel(Key,Rest,append(Front,Head),Tupel)
+  end.
 
 append([], []) ->
   [];
@@ -122,15 +129,22 @@ append([H|T],Elem) ->
 append(L,[H|T]) ->
   append([L] ++ [H], T);
 append(E1,E2) ->
-  [E1] ++ [E2]
-.
+  [E1] ++ [E2].
 
 listLength([]) ->
   0;
 listLength(L) ->
-  length(L,0).
+  listLength(L,0).
 
 listLength([],A) ->
   A;
 listLength([_|T],A) ->
-  length(T,A+1).
+  listLength(T,A+1).
+
+member(_,[]) ->
+  false;
+member(Elem, [H|T]) ->
+  if
+    H == Elem -> true;
+    true -> member(Elem, T)
+  end.
