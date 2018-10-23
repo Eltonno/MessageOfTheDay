@@ -18,7 +18,9 @@ init() ->
   init("server.cfg")
 .
 
+%% Initialisiert den Server, die HBQ und CMEM.
 init(File) ->
+  %% Parameter werden aus der Config-Datei eingelesen.
   {ok, Configfile} = file:consult(File),
   {ok, Latency} = vsutil:get_config_value(latency, Configfile),
   {ok, Clientlifetime} = vsutil:get_config_value(clientlifetime, Configfile),
@@ -28,6 +30,8 @@ init(File) ->
   Logfile = atom_to_list(?RECHNER_NAME) ++".log",
   CMEM = cmem:initCMEM(Clientlifetime, Logfile),
   util:logging(Logfile, "Server: " ++ File ++ " geöffnet...\n"),
+  %% Die HBQ wird angepingt, 
+  %% registriert, und initialisiert.
   net_adm:ping(HBQnode),
   timer:sleep(700),
   HBQPID = spawn(HBQnode, hbq, startHBQ, []),
@@ -37,6 +41,8 @@ init(File) ->
     {reply, ok} ->
       util:logging(Logfile, "Server: HBQ konnte initialisiert werden\n")
   end,
+  %% Es wird eine Config-Liste erzeugt, 
+  %% die für die interne Speicherung der Parameter verwendet wird.
   Config = [
     {latency, Latency},
     {clientLifetime, Clientlifetime},
@@ -46,6 +52,8 @@ init(File) ->
     {logfile,Logfile},
     {cmem, CMEM},
     {hbqpid, HBQPID}],
+  %% Bei Initialisierung des Servers, 
+  %% wird diese Variable mit 1 initialisiert.
   PID = spawn(?MODULE,loop,[Config,1]),
   util:logging(Logfile, "Server: Startzeit: " ++ vsutil:now2string(erlang:timestamp()) ++ " mit PID " ++ util:to_String(PID) ++ "\n"),
   register(Servername, PID),
@@ -59,8 +67,17 @@ loop(Config, MsgID) ->
   {_,HBQname} = keyfind(hbqname, Config),
   {_,HBQnode} = keyfind(hbqnode, Config),
   receive
+    %% Sendet der HBQ den Befehl, 
+    %% dem Client die Nachrichten, 
+    %% die er noch nicht gelesen hat, 
+    %% zu senden.
     {CPID, getmessages} ->
+      %% Überprüfen, welche Nachrichten der Leser schon bekommen hat durch getClient- NNr(CMEM, ClientID).
       CNNR = cmem:getClientNNr(CMEM, CPID),
+      %% Sendet dem Leser die Nachricht mit der niedrigsten NNr aus der DLQ, 
+      %% die eine größere NNr hat als die letzte die der Leser bekommen hatte, 
+      %% indem deliverMSG von der HBQ ausgeführt wird, 
+      %% mit der Nachrichtnr. (CNNR) und ClientID (CPID) als Parameter.
       {HBQname,HBQnode} ! {self(), {request, deliverMSG, CNNR, CPID}},
       receive
         {reply, SendNNr} ->
@@ -72,7 +89,11 @@ loop(Config, MsgID) ->
           util:logging(Logfile, "Server: Nachricht " ++ util:to_String(CNNR) ++ "konnte nicht zugestellt werden.\n"),
           loop(Config, MsgID)
       end;
+    %% Empfängt eine Nachricht, 
+    %% und schreibt diese in die HBQ. 
+    %% Format der zu empfangenden Nachricht: [INNr,Msg,TSclientout]
     {dropmessage,[INNR,Msg,TSclientout]} ->
+      %% Empfängt die Nachricht und schreibt sie mittels pushHBQ in die HBQ.
       {HBQname,HBQnode} ! {self(), {request,pushHBQ,[INNR,Msg,TSclientout]}},     %HBQPID ! {self(), {request, pushHBQ, [INNR, Msg, TSclientout]}}
       receive
         {reply, ok} ->
@@ -83,11 +104,17 @@ loop(Config, MsgID) ->
           util:logging(Logfile, "Server: Nachricht " ++ util:to_String(INNR) ++ "konnte nicht in HBQ eingefügt werden.\n"),
           loop(Config, MsgID)
       end;
+    %% Gibt die nächste unvergebene NNr zurück.
     {CPID,getmsgid} ->
       util:logging(Logfile, "Server: Nachrichtennummer " ++ util:to_String(MsgID) ++ " an " ++ util:to_String(CPID) ++ " gesendet\n"),
       CPID ! {nid, MsgID},
+      %% Der Server hat einen Zähler, 
+      %% der bei jedem Aufruf von getmsgid um 1 inkrementiert wird (MsgID + 1).
       loop(Config, MsgID + 1);
+    
+    %% Loggt eine Liste aller Nachrichtnummern der in der DLQ enthaltenen Nachrichten.
     {_,listDLQ} ->
+      %% Dafür wird listdlq bei der HBQ aufgerufen.
       {HBQname,HBQnode} ! {self(),{request, listDLQ}},
       receive
         {reply, ok} ->
@@ -97,7 +124,10 @@ loop(Config, MsgID) ->
           util:logging(Logfile, "Server: DLQ konnte nicht gelistet werden\n")
       end,
       loop(Config, MsgID);
+    
+    %% Loggt eine Liste aller Nachrichtnummern der in der HBQ enthaltenen Nachrichten an den Server aus.
     {_,listHBQ} ->
+      %% Dafür wird listhbq bei der HBQ aufgerufen.
       {HBQname,HBQnode} ! {self(),{request, listHBQ}},
       receive
         {reply, ok} ->
@@ -107,7 +137,11 @@ loop(Config, MsgID) ->
           util:logging(Logfile, "Server: HBQ konnte nicht gelistet werden\n")
       end,
       loop(Config, MsgID);
+    
+    %% Loggt die Liste der dem CMEM aktuell bekannten Clients, 
+    %% mit dessen zuletzt empfangenen Nachrichtnummer.
     {_,listCMEM} ->
+      %% Dafür wird listCMEM im CMEM aufgerufen.
       cmem:listCMEM(CMEM),
       loop(Config, MsgID)
   after
