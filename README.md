@@ -33,7 +33,7 @@ Starten des Servers:
 
 Starten des Clients:
 --------------------
-1> client_starter:start( ).
+1> client:init( ).
 
 % 'server@lab33.cpt.haw-hamburg.de': Name der Server Node, erhält man zB über node()
 % ' wegen dem - bei haw-hamburg, da dies sonst als minus interpretiert wird.
