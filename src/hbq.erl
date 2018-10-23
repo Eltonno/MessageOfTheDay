@@ -91,8 +91,7 @@ loop(Limit,HBQ,DLQ) ->
     {SPID, {request,dellHBQ}} ->
       dlq:delDLQ(DLQ),
       SPID ! {reply, ok},
-      [FNNr,_FMsg,_FTSclientout,_FTShbqin] = first(HBQ),
-      util:logging(?LOGFILE, "HBQ>>> Downtime: " ++ vsutil:now2string(erlang:timestamp()) ++ " von HBQ und DLQ " ++ util:to_String(self()) ++ "; Anzahl Restnachrichten HBQ:" ++ util:to_String(listLength(HBQ)) ++ "; DLQ letzte NNr:" ++ util:to_String(FNNr - 1) ++ "\n")
+      util:logging(?LOGFILE, "HBQ>>> Downtime: " ++ vsutil:now2string(erlang:timestamp()) ++ " von HBQ und DLQ " ++ util:to_String(self()) ++ "; Anzahl Restnachrichten HBQ:" ++ util:to_String(listLength(HBQ)) ++ "; DLQ letzte NNr:" ++ util:to_String(dlq:expectedNr(DLQ) - 1) ++ "\n")
   end
 .
 
