@@ -54,7 +54,6 @@ loop(Limit,HBQ,DLQ) ->
           SPID ! {reply, ok},
           if
             LenghtHBQ > 0 ->
-              %util:logging(?LOGFILE, "HBQ>>> Content(" ++ util:to_String(listLength(SortedHBQ)) ++ "): " ++ util:to_String(getNNrs(SortedHBQ)) ++ "\n"),
               {HBQ_Tmp_1, DLQ_Tmp_1} = checkEqual(SortedHBQ,NewDLQ),
               loop(Limit,HBQ_Tmp_1,DLQ_Tmp_1);
             true ->
@@ -63,12 +62,8 @@ loop(Limit,HBQ,DLQ) ->
         true ->
           NewHBQ = append(HBQ,[[NNr,Msg ++ util:to_String(vsutil:now2string(TShbqin)),TSclientout,TShbqin]]),
           util:logging(?LOGFILE, "HBQ>>> Nachricht " ++ util:to_String(NNr) ++ " in der HBQ gespeichert aber noch nicht an DLQ ausgeliefert, da Nachrichten fehlen.\n"),
-          %util:logging(?LOGFILE, "HBQ>>> aktuell " ++ util:to_String(NewHBQ) ++ "\n"),
-          %SortedHBQ_Tmp_1 = bubblesort(NewHBQ),
-          %util:logging(?LOGFILE, "HBQ>>> presort " ++ util:to_String(NewHBQ) ++ "\nHBQ>>> postsort" ++ util:to_String(SortedHBQ_Tmp_1) ++ "\n"),
           Length = listLength(NewHBQ),
           [MinNNr,_,_,_] = first(NewHBQ),
-          util:logging(?LOGFILE, "HBQ>>> lenght " ++ util:to_String(Length) ++ "\nDLQ>>> limit " ++ util:to_String(Limit) ++ "\n"),
           if
             Length >= Limit ->
               NewDLQ = dlq:push2DLQ([MinNNr-1, "***Fehlernachricht fuer Nachrichten " ++ util:to_String(DLQNNr) ++ " bis " ++ util:to_String(MinNNr-1) ++ " um " ++ vsutil:now2stringD(erlang:timestamp()) ++ "|." ,{0,0,0}, {0,0,0}], DLQ, ?LOGFILE),
@@ -84,7 +79,6 @@ loop(Limit,HBQ,DLQ) ->
        INNr = dlq:deliverMSG(NNr,ToClient,DLQ,?LOGFILE),
       SPID ! {reply, INNr},
       loop(Limit,HBQ,DLQ);
-%%TODO Test die Funktion listDLQ
     {SPID, {request, listDLQ}} ->
       DLQlist = dlq:listDLQ(DLQ),
       util:logging(?LOGFILE, "dlq>>> Content(" ++ util:to_String(dlq:lengthDLQ(DLQ)) ++ "): " ++ util:to_String(DLQlist) ++ "\n"),
@@ -109,7 +103,7 @@ checkEqual([[NNr,Msg,TSclientout,TShbqin]],DLQ) ->
   if
     NNr == DLQNNr ->
       NewDLQ = dlq:push2DLQ([NNr,Msg,TSclientout,TShbqin],DLQ,?LOGFILE),
-      {[[NNr,Msg,TSclientout,TShbqin]],NewDLQ};
+      {[],NewDLQ};
     true ->
       {[[NNr,Msg,TSclientout,TShbqin]],DLQ}
   end;
@@ -118,21 +112,9 @@ checkEqual([[NNr,Msg,TSclientout,TShbqin]|T],DLQ) ->
   if
     NNr == DLQNNr ->
       NewDLQ = dlq:push2DLQ([NNr,Msg,TSclientout,TShbqin],DLQ,?LOGFILE),
-      checkEqual([[NNr,Msg,TSclientout,TShbqin]],T,NewDLQ);
+      checkEqual(T,NewDLQ);
     true ->
       {append([[NNr,Msg,TSclientout,TShbqin]],T),DLQ}
-  end.
-
-checkEqual(Head,[],DLQ) ->
-  {Head,DLQ};
-checkEqual(Head, [[NNr,Msg,TSclientout,TShbqin]|T],DLQ) ->
-  DLQNNr = dlq:expectedNr(DLQ),
-  if
-    NNr == DLQNNr ->
-      NewDLQ = dlq:push2DLQ([NNr,Msg,TSclientout,TShbqin],DLQ,?LOGFILE),
-      checkEqual(append(Head,[[NNr,Msg,TSclientout,TShbqin]]),T,NewDLQ);
-    true ->
-      {append(append(Head,[[NNr,Msg,TSclientout,TShbqin]]),T),DLQ}
   end.
 
 getNNrs([]) ->
@@ -159,11 +141,9 @@ reverse([H|T], R) ->
 bubblesort(L) when length(L) =< 1 ->
   L;
 bubblesort(L) ->
-  util:logging(?LOGFILE, "UNSORTED HBQ >>> " ++ util:to_String(L) ++ "\n"),
   bubblesort(L, [], true).
 
 bubblesort([], L, true) ->
-  util:logging(?LOGFILE, "ALMOST SORTED HBQ >>> " ++ util:to_String(L) ++ "\n"),
   reverse(L);
 bubblesort([], L, false) ->
   bubblesort(reverse(L), [], true);
@@ -171,17 +151,6 @@ bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP],[NNr,Msg,TSclientout,TShbqin]|T], 
   bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP]|T], [[NNr,Msg,TSclientout,TShbqin]|Sorted], false);
 bubblesort([H|T], Sorted, Halt) ->
   bubblesort(T, [H|Sorted], Halt).
-
-%bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP]], Sorted, _) ->
-%  bubblesort([], [[NNrP,MsgP,TSclientoutP,TShbqinP]|Sorted], false);
-%bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP],[NNr,Msg,TSclientout,TShbqin]], Sorted, _) when NNrP > NNr ->
-%  bubblesort([], [[NNrP,MsgP,TSclientoutP,TShbqinP],[NNr,Msg,TSclientout,TShbqin]|Sorted], false);
-%bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP],[NNr,Msg,TSclientout,TShbqin]], Sorted, _) when NNrP =< NNr ->
-%  bubblesort([], [[NNr,Msg,TSclientout,TShbqin],[NNrP,MsgP,TSclientoutP,TShbqinP]|Sorted], false);
-%bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP],[NNr,Msg,TSclientout,TShbqin]|T], Sorted, _) when NNrP > NNr ->
-%  bubblesort([[NNrP,MsgP,TSclientoutP,TShbqinP]|T], [[NNr,Msg,TSclientout,TShbqin]|Sorted], false);
-%bubblesort([H|T], Sorted, Halt) ->
-%  bubblesort(T, [H|Sorted], Halt).
 
 append([], []) ->
   [];
