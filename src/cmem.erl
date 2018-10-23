@@ -12,39 +12,65 @@
 %% API
 -export([initCMEM/2,delCMEM/1,updateClient/4,getClientNNr/2,listCMEM/1,lengthCMEM/1]).
 
+%% Erstellt CMEM und gibt leeres CMEM zurück
 initCMEM(RemTime,Datei) ->
   util:logging(Datei, "CMEM>>> initialisiert mit Lebenszeit " ++ util:to_String(RemTime) ++ " Sekunden\n"),
+  %% CMEM besteht aus einer Liste von Tupeln, 
+  %% bestehend aus Clients, 
+  %% deren NNr, 
+  %% und dem Timestamp der letzten Anfrage dieses Clients.
   {[], RemTime}.
 
+%% Löscht CMEM und gibt ok zurück.
 delCMEM(_CMEM) ->
   ok.
 
+
+%% Speichert die letzte NNr, 
+%% die der Client bekommen hat
 updateClient(CMEM,ClientID,NNr,Datei) ->
   {CMEMlist, RemTime} = CMEM,
+  %% Überprüfen ob ein Client mit dieser ClientID schon im CMEM (CMEMlist) ist.
   Member = member(ClientID,CMEMlist),
   case Member of
     true ->
       util:logging(Datei, "CMEM>>> Client " ++ util:to_String(ClientID) ++ " in CMEM eingefügt " ++ util:to_String(vsutil:now2UTC(erlang:timestamp())) ++ "\n"),
+      %% Wenn ja, 
+      %% seine NNr und seinen Timestamp aktualisieren
       CMEMlist_Tmp_1 = keystore3Tupel(ClientID, CMEMlist, {ClientID, NNr, erlang:timestamp()}),
+      %% Alle Clients werden auf einen Timeout überprüft.
+      %% Sollte einer vorhanden sein, 
+      %% so wird der Client aus dem CMEM entfernt.
       deleteClients({CMEMlist_Tmp_1,RemTime},Datei);
     false ->
       util:logging(Datei, "CMEM>>> Client " ++ util:to_String(ClientID) ++ " wird aktualisiert\n"),
+      %% Ansonsten den Client im CMEM speichern (keystore3Tupel), 
+      %% zusammen mit der NNr und dem Timestamp.
       CMEMlist_Tmp_1 = keystore3Tupel(ClientID, CMEMlist, {ClientID, NNr, erlang:timestamp()}),
+      %% Alle Clients werden auf einen Timeout überprüft.
+      %% Sollte einer vorhanden sein, 
+      %% so wird der Client aus dem CMEM entfernt.
       deleteClients({CMEMlist_Tmp_1,RemTime},Datei)
   end.
 
+%% Gibt die NNr der Nachricht zurück, 
+%% die der Client als nächstes bekommen sollte.
 getClientNNr(CMEM,ClientID) ->
   {CMEMlist, RemTime} = CMEM,
   Client = keyfind3Tupel(ClientID, CMEMlist),
   case Client of
     false ->
+      %% Wenn der Client nicht im CMEM vermerkt ist, 
+      %% wird 1 zurückgegeben.
       1;
     _Otherwise ->
+      %% Nach jeder Anfrage beim CMEM eines beliebigen Clients werden alle Clients auf den vordefinierten Timeout geprüft und gegebenenfalls entfernt.
       {_, CNNr, CTs} = Client,
       {_,Sec,_} = vsutil:diffTS(erlang:timestamp(),CTs),
       Delete = Sec >= RemTime,
       case Delete of
         false ->
+          %% Ansonsten gebe die gespeicherte NNr des Clients + 1 zurück.
           CNNr + 1;
         true ->
           1
@@ -52,10 +78,15 @@ getClientNNr(CMEM,ClientID) ->
   end
 .
 
+%% Iteriert durch die Clientliste des CMEMs und speichert alle ClientIDs und dessen zuletzt bekommene NNr in einer Liste solcher Tupel.
 listCMEM(CMEM) ->
   {CMEMList, _} = CMEM,
+  %% Die Liste wird daraufhin zurückgegeben.
   getClients(CMEMList).
 
+
+%% Die dem CMEM bekannten Clients werden gezählt, 
+%% und die Anzahl dann zurückgegeben.
 lengthCMEM(CMEM) ->
   {CMEMList, _} = CMEM,
   listLength(CMEMList).
