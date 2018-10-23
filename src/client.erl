@@ -19,6 +19,10 @@
 -define(RECHNER_NAME, erlang:node()).
 
 init() ->
+  %% Die Einstellungen für den Client 
+  %% (Anzahl der Clients (Clients), Lebenszeit (Lifetime), Servername (Servername), Servernode (Servernode) und das Sende-Intervall (Sendinterval)) 
+  %% sind in der Datei client.cfg 
+  %% angegeben.
   init("client.cfg").
 
 init(File) ->
@@ -64,32 +68,56 @@ main_loop(Config, SessionTransactions, Role, OwnMsgs) ->
   {_,Intervall} = keyfind(intervall, Config),
   Diff = toMillis(erlang:timestamp()) - toMillis(Starttime),
   if
+    %% Sobald die Lebenszeit abgelaufen ist (Lifetime * 1000), 
+    %% wird der Client nach Beendigung der aktuellen Aufgabe sofort terminiert.
     Diff < Lifetime * 1000 ->
       case Role of
         publisher ->
           MsgID = getMsgID(Servername, Servernode),
           case SessionTransactions of
+            %% Jede 6. Nachricht ist eine simulierte vergessene Nachricht.
             5 ->
+              %% Die Sekundenzahl (Intervall) wird in der client.cfg Datei angegeben und variiert nach jeder 5. Nachricht um bis zu 50% (min. 2 Sekunden).
               NewInt = changeSendInterval(Intervall),
               Config_Tmp_1 = keystore(intervall, Config, {intervall, NewInt}),
               util:logging(Logfile, "Neues Sendeintervall: " ++ util:to_String(NewInt) ++ "(" ++ util:to_String(Intervall) ++ ")\n"),
               util:logging(Logfile, util:to_String(MsgID) ++ "te_Nachricht um " ++ util:timeMilliSecond() ++ " vergessen zu senden ******\n"),
+              %% Der Redakteur übergibt bei Beendigung seiner Aufgabe die Nachrichtnummern (OwnMsgs), 
+              %% die er versendet hat, 
+              %% an den Leser-Client. 
+              %% Dies ist damit er die Nachrichten des eigenen Redakteurs erkennen kann.
+              %% Daraufhin wird dann auch in den Leser-Modus (reader) gewechselt.
               main_loop(Config_Tmp_1, 0, reader, OwnMsgs);
             _Otherwise ->
+              %% Die Nachricht (Msg), 
+              %% die versendet wird beinhaltet folgendes: 
+              %% seinen Rechnernamen (?RECHNER_NAME), 
+              %% die Praktikumsgruppe (?GRUPPE), 
+              %% Teamnummer (?TEAM), 
+              %% “:”, 
+              %% NNr (MsgID), 
+              %% “te_Nachricht. C OUT:”, 
+              %% und den aktuellen Timestamp (util:timeMilliSecond()).
               Msg = util:to_String(?RECHNER_NAME) ++ util:to_String(?GRUPPE) ++ util:to_String(?TEAM) ++ ": " ++ util:to_String(MsgID) ++ "te_Nachricht. C Out: " ++ util:timeMilliSecond(),
               {Servername, Servernode} ! {dropmessage, [MsgID, Msg, erlang:timestamp()]},
               util:logging(Logfile, Clientname ++ "-" ++ atom_to_list(?RECHNER_NAME) ++ "-" ++ util:to_String(self()) ++ "-LAW: " ++  util:to_String(MsgID) ++ "te_Nachricht um " ++ util:timeMilliSecond() ++ " gesendet\n"),
+              %% Alle n (Intervall * 1000) Sekunden sendet der Client eine Nachricht an den Server.
               timer:sleep(trunc(Intervall * 1000)),
+              %% Die Client-Datei besitzt eine NNr-Liste (OwnMsgs). 
               main_loop(Config, SessionTransactions + 1, Role, append(OwnMsgs, MsgID))
           end;
         reader ->
+          %% Der Leser-Client ruft die Nachrichten vom Server ab (einzelnd nacheinander) (getmessages).
           {Servername, Servernode} ! {self(), getmessages},
           receive
             {reply, [MsgID, Msg, TSclientout, _TShbqin, _TSdlqin, TSdlqout], false} ->
+              %% Der Client schreibt die Nachricht und die Timestamps in die Log-Datei.
               readerLogging([MsgID, Msg, TSclientout, TSdlqout], Logfile, OwnMsgs),
               main_loop(Config,0, Role, OwnMsgs);
             {reply, [MsgID, Msg, TSclientout, _TShbqin, _TSdlqin, TSdlqout], true} ->
               readerLogging([MsgID, Msg, TSclientout, TSdlqout], Logfile, OwnMsgs),
+              %% Wenn die Nachricht den ‘Terminated’-Wert ‘true’ hat, 
+              %% so wechselt der Client wieder in den Redaktionsmodus (publisher).
               main_loop(Config, 0, publisher, OwnMsgs)
           end
       end;
@@ -112,6 +140,9 @@ readerLogging([MsgID, Msg, TScout, TSdlqout], Logfile, OwnMsgs) ->
   if
     TScout == {0,0,0} ->
       if
+        %% Sollte die empfangene Nachricht einen Timestamp aus der Zukunft haben (Less), 
+        %% muss “Nachricht aus der Zukunft” in die Log-Datei geschrieben werden, 
+        %% und die Zeitdifferenz (vsutil:now2stringD(Diff)).
         Less ->
           util:logging(Logfile, Msg++ " ; C In: " ++ vsutil:now2string(TScin) ++" >**Nachricht aus der Zukunft fuer Leser:" ++ vsutil:now2stringD(Diff) ++ "<\n");
         true ->
@@ -122,6 +153,8 @@ readerLogging([MsgID, Msg, TScout, TSdlqout], Logfile, OwnMsgs) ->
       if
         Less ->
           if
+            %% Sollte die NNr einer der Nachrichten in der NNr-Liste des Clients stehen (Member), 
+            %% muss die Zeichenfolge “*******” an die Log-Nachricht angefügt werden.
             Member ->
               util:logging(Logfile, Msg++ "*******; C In: " ++ vsutil:now2string(TScin) ++" >**Nachricht aus der Zukunft fuer Leser:" ++ vsutil:now2stringD(Diff) ++ "<\n");
             true ->
